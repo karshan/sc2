@@ -6,12 +6,10 @@ import           Control.Lens (over)
 import           Control.Lens.TH (makeLenses)
 import           Data.Bool (bool)
 import           Data.Function ((&), on)
-import           Data.List (sortBy, subsequences)
-import           Data.List.NonEmpty (NonEmpty, nonEmpty)
-import           Data.Monoid ((<>))
+import           Data.List (sortBy)
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Maybe (mapMaybe, fromMaybe, listToMaybe, catMaybes)
+import           Data.Maybe (fromMaybe, listToMaybe, catMaybes)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -93,11 +91,6 @@ buildings' b = lookupInt b . _buildings
 
 scvsPerBase :: Int
 scvsPerBase = 16
-
-meetDependencies :: Unit -> State -> Bool
-meetDependencies u s = fromMaybe err (Map.lookup (Left u) dependencyDB) & maybe True (\d -> buildings' d s > 0)
-    where
-        err = error $ "dependencyDB is missing an entry for " ++ (show u) -- It would be nice if this was checked at compile time (dependent types ?)
 
 productionPrune :: Int -> Int -> Bool
 productionPrune prods goalUnits = prods * prods > goalUnits
