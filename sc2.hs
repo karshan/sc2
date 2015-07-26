@@ -12,6 +12,8 @@ import           Data.Monoid ((<>))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (mapMaybe, fromMaybe, listToMaybe, catMaybes)
+import           Data.Set (Set)
+import qualified Data.Set as Set
 
 data Unit = SCV | Marine deriving (Show, Eq, Ord)
 data Building = SupplyDepot | Barracks | CommandCenter deriving (Show, Eq, Ord)
@@ -28,10 +30,10 @@ makeLenses ''State
 
 data Goal = GoalUnits Unit Int
 
-type BuildOrder = [NonEmpty Order] -- Orders can be concurrent
+type BuildOrder = [Order]
 data Order = Train Unit
            | Build Building
-           deriving (Show)
+           deriving (Show, Ord, Eq)
 
 attributeDB :: Map (Either Unit Building) Attributes
 attributeDB = Map.fromList
@@ -74,8 +76,8 @@ startingState = State { _units = Map.fromList [(SCV, 12)]
 
 go :: Goal -> Maybe BuildOrder
 go = fmap fst . listToMaybe .
-     sortBy (compare `on` snd) . map (id &&& eval) .
-     go' [] [] startingState
+     sortBy (compare `on` snd) . map (id &&& eval) . Set.toList .
+     go' Set.empty [] startingState
 
 lookupInt :: (Ord k) => k -> Map k Int -> Int
 lookupInt k = fromMaybe 0 . Map.lookup k
@@ -97,25 +99,27 @@ meetDependencies u s = fromMaybe err (Map.lookup (Left u) dependencyDB) & maybe 
     where
         err = error $ "dependencyDB is missing an entry for " ++ (show u) -- It would be nice if this was checked at compile time (dependent types ?)
 
-go' :: [BuildOrder] -> BuildOrder -> State -> Goal -> [BuildOrder]
-go' accs acc s g@(GoalUnits u n) =
-  if units' u s >= n then 
-    acc:accs
-  else
-    mapMaybe nonEmpty (subsequences (catMaybes 
+productionPrune :: Int -> Int -> Bool
+productionPrune prods goalUnits = prods * prods > goalUnits
+
+go' :: Set BuildOrder -> BuildOrder -> State -> Goal -> Set BuildOrder
+go' accs acc s g@(GoalUnits u n)
+  | units' u s >= n = Set.insert acc accs
+  | otherwise = catMaybes 
       [ bool Nothing (Just $ Train SCV) (units' SCV s < scvsPerBase)
       , Just $ getDependency (Left u) & 
           maybe (Train u) 
                 (\d -> buildings' d s > 0 &
                        bool (Build d) (Train u))
-      , Nothing -- TODO extra barracks  =<< getDependency (Left u)
-      ])) & concatMap (\bo ->
-            go' accs (acc ++ [bo]) (step bo s) g)
+      , (\d -> bool (Just $ Build d) Nothing $ productionPrune (buildings' d s) n) =<< getDependency (Left u)
+      ] & Set.unions . map (\o -> go' accs (acc ++ [o]) (step o s) g)
 
-step :: NonEmpty Order -> State -> State
-step os s = foldr (\o acc -> case o of
-                     Build b -> over buildings (updateInt (+1) b) acc
-                     Train u -> over units (updateInt (+1) u) acc) s os
+step :: Order -> State -> State
+step (Build b) s = over buildings (updateInt (+1) b) s
+step (Train u) s = over units (updateInt (+1) u) s
 
 eval :: BuildOrder -> Int
 eval = undefined
+
+main :: IO ()
+main = mapM_ print $ go' Set.empty [] startingState (GoalUnits Marine 1)
